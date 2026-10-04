@@ -1,6 +1,6 @@
 // 앱 화면(껍데기)만 캐시. 노래 영상은 항상 유튜브에서 스트리밍.
-const CACHE = 'baby-music-v2';
-const SHELL = ['./', 'index.html', 'manifest.json', 'icon.svg', 'icon-192.png', 'icon-512.png'];
+const CACHE = 'baby-music-v3';
+const SHELL = ['./', 'index.html', 'manifest.json', 'icon.svg', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)));

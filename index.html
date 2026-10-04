@@ -206,7 +206,7 @@
 
 <script>
 // 배포할 때마다 올림. 폰 화면 맨 아래에 보여서 최신 버전인지 확인용
-const APP_VERSION = 'v7';
+const APP_VERSION = 'v8';
 const STORE_KEY = 'baby-music.songs';
 const REPEAT_KEY = 'baby-music.repeat';
 // 반복 모드: one(한곡반복) → all(다음곡) → off(끝나면정지)
@@ -612,6 +612,15 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') requestWakeLock();
 });
 document.addEventListener('pointerdown', requestWakeLock, { once: true });
+
+// ---------- 전체화면 ----------
+// 설치된 앱이 아니라 Chrome 탭/바로가기로 열렸을 때, 터치하면 주소창 없이 전체화면으로
+const isStandalone = matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches;
+document.addEventListener('pointerdown', () => {
+  if (isStandalone || document.fullscreenElement || !matchMedia('(pointer: coarse)').matches) return;
+  const el = document.documentElement;
+  if (el.requestFullscreen) el.requestFullscreen({ navigationUI: 'hide' }).catch(() => {});
+});
 requestWakeLock();
 
 // ---------- 시작 ----------
