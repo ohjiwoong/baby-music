@@ -131,6 +131,7 @@
     font-size: 15px; font-weight: 700; padding: 12px 14px;
   }
   .result button:disabled { background: #3a3e4c; color: var(--muted); }
+  .version { text-align: center; color: #555a6a; font-size: 13px; padding: 24px 0 8px; }
   .results .close { align-self: center; border: 0; background: none; color: var(--muted); font-size: 15px; padding: 8px; }
 
   /* 유튜브 뮤직 앱 모드: 이 화면의 플레이어와 재생 컨트롤은 필요 없음 */
@@ -188,6 +189,7 @@
       <button id="importBtn">가져오기</button>
       <button id="modeBtn"></button>
       <button id="viewBtn"></button>
+      <button id="updateBtn">앱 업데이트</button>
       <button id="doneBtn">편집 끝</button>
     </div>
     <div class="results" id="results"></div>
@@ -197,11 +199,14 @@
       위의 ✏️ 버튼을 <b>길게 눌러</b> 편집 모드로 들어간 뒤<br>
       노래를 검색해서 추가하세요.
     </div>
+    <div class="version" id="version"></div>
   </main>
 </div>
 <div class="toast" id="toast"></div>
 
 <script>
+// 배포할 때마다 올림. 폰 화면 맨 아래에 보여서 최신 버전인지 확인용
+const APP_VERSION = 'v7';
 const STORE_KEY = 'baby-music.songs';
 const REPEAT_KEY = 'baby-music.repeat';
 // 반복 모드: one(한곡반복) → all(다음곡) → off(끝나면정지)
@@ -446,6 +451,18 @@ $('repeatBtn').addEventListener('click', cycleRepeat);
   });
 })();
 
+// 캐시를 지우고 서버의 최신 파일로 다시 불러오기
+$('updateBtn').addEventListener('click', async () => {
+  toast('최신 버전을 불러오는 중…');
+  try {
+    const keys = await caches.keys();
+    await Promise.all(keys.map((k) => caches.delete(k)));
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (reg) await reg.unregister();
+  } catch {}
+  location.replace(location.pathname + '?v=' + Date.now());
+});
+
 $('doneBtn').addEventListener('click', () => {
   document.body.classList.remove('editing');
   $('results').innerHTML = '';
@@ -598,6 +615,7 @@ document.addEventListener('pointerdown', requestWakeLock, { once: true });
 requestWakeLock();
 
 // ---------- 시작 ----------
+$('version').textContent = '버전 ' + APP_VERSION;
 render();
 const tag = document.createElement('script');
 tag.src = 'https://www.youtube.com/iframe_api';
