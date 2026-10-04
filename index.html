@@ -90,6 +90,27 @@
   .song-tools .del { background: var(--danger); }
   body.editing .song { outline: 2px dashed #555; }
 
+  /* 검색 결과 */
+  .results { display: none; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+  body.editing .results:not(:empty) { display: flex; }
+  .result {
+    display: flex; align-items: center; gap: 10px;
+    background: #111; border-radius: 12px; padding: 8px;
+  }
+  .result img { width: 120px; aspect-ratio: 16/9; object-fit: cover; border-radius: 8px; flex: none; background: #000; }
+  .result .info { flex: 1; min-width: 0; }
+  .result .t {
+    font-size: 15px; font-weight: 600; line-height: 1.3;
+    overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  }
+  .result .c { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .result button {
+    flex: none; border: 0; border-radius: 10px; background: var(--accent); color: #222;
+    font-size: 15px; font-weight: 700; padding: 12px 14px;
+  }
+  .result button:disabled { background: #3a3e4c; color: var(--muted); }
+  .results .close { align-self: center; border: 0; background: none; color: var(--muted); font-size: 15px; padding: 8px; }
+
   /* 유튜브 뮤직 앱 모드: 이 화면의 플레이어와 재생 컨트롤은 필요 없음 */
   body.app-mode .player-box,
   body.app-mode #pauseBtn,
@@ -137,18 +158,19 @@
   </header>
   <main>
     <div class="edit-bar">
-      <input id="urlInput" type="url" inputmode="url" placeholder="유튜브 링크 붙여넣기">
-      <button class="primary" id="addBtn">추가</button>
+      <input id="urlInput" type="search" enterkeyhint="search" placeholder="노래 검색 (링크도 가능)">
+      <button class="primary" id="addBtn">검색</button>
       <button id="exportBtn">내보내기</button>
       <button id="importBtn">가져오기</button>
       <button id="modeBtn"></button>
       <button id="doneBtn">편집 끝</button>
     </div>
+    <div class="results" id="results"></div>
     <div class="grid" id="grid"></div>
     <div class="empty-hint" id="emptyHint" hidden>
       아직 노래가 없어요.<br>
       위의 ✏️ 버튼을 <b>길게 눌러</b> 편집 모드로 들어간 뒤<br>
-      유튜브 링크를 붙여넣어 노래를 추가하세요.
+      노래를 검색해서 추가하세요.
     </div>
   </main>
 </div>
@@ -272,10 +294,10 @@ function editAction(act, i) {
 }
 
 // ---------- 재생 ----------
-function play(id) {
+function play(id, title) {
   currentId = id;
   const s = songs.find((x) => x.id === id);
-  $('nowTitle').textContent = s ? s.title : '';
+  $('nowTitle').textContent = s ? s.title : (title || '');
   $('nowTitle').classList.remove('empty');
   $('pauseBtn').textContent = '⏸';
   render();
@@ -368,7 +390,10 @@ $('repeatBtn').addEventListener('click', () => {
   });
 })();
 
-$('doneBtn').addEventListener('click', () => document.body.classList.remove('editing'));
+$('doneBtn').addEventListener('click', () => {
+  document.body.classList.remove('editing');
+  $('results').innerHTML = '';
+});
 
 $('modeBtn').addEventListener('click', () => {
   mode = mode === 'page' ? 'app' : 'page';
@@ -380,22 +405,101 @@ $('modeBtn').addEventListener('click', () => {
     : '이 화면에서 바로 재생해요');
 });
 
-$('addBtn').addEventListener('click', async () => {
-  const input = $('urlInput');
-  const id = parseVideoId(input.value);
-  if (!id) return toast('유튜브 링크를 확인해주세요');
-  if (songs.some((s) => s.id === id)) return toast('이미 있는 노래예요');
-  const btn = $('addBtn');
-  btn.disabled = true;
-  const title = (await fetchTitle(id)) || prompt('제목을 못 가져왔어요. 버튼 이름을 적어주세요', '') || '노래';
-  btn.disabled = false;
+function addSong(id, title) {
+  if (songs.some((s) => s.id === id)) { toast('이미 있는 노래예요'); return false; }
   songs.push({ id, title });
   save();
   render();
-  input.value = '';
   toast('추가했어요. "이름" 버튼으로 짧게 바꿀 수 있어요');
+  return true;
+}
+
+// 검색창: 유튜브 링크면 바로 추가, 아니면 검색
+$('addBtn').addEventListener('click', async () => {
+  const input = $('urlInput');
+  const text = input.value.trim();
+  if (!text) return;
+  const btn = $('addBtn');
+  btn.disabled = true;
+  input.blur();
+  try {
+    const id = /^https?:\/\//.test(text) ? parseVideoId(text) : null;
+    if (id) {
+      const title = (await fetchTitle(id)) || prompt('제목을 못 가져왔어요. 버튼 이름을 적어주세요', '') || '노래';
+      if (addSong(id, title)) input.value = '';
+    } else {
+      showResults(await searchVideos(text));
+    }
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    btn.disabled = false;
+  }
 });
 $('urlInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('addBtn').click(); });
+
+// ---------- 유튜브 검색 (YouTube Data API) ----------
+// ohjiwoong.github.io 에서만 동작하도록 Google Cloud에서 제한된 브라우저용 키
+const API_KEY = 'AIzaSyDi8_rHhoWouJZ09JEFtrRwwGqAi01uLiI';
+
+async function searchVideos(q) {
+  const params = new URLSearchParams({
+    part: 'snippet', type: 'video', maxResults: '15', q,
+    regionCode: 'KR', relevanceLanguage: 'ko', safeSearch: 'strict', key: API_KEY,
+  });
+  // 이 화면에서 재생할 땐 외부 재생이 막힌 영상은 제외
+  if (mode === 'page') params.set('videoEmbeddable', 'true');
+  let r;
+  try { r = await fetch('https://www.googleapis.com/youtube/v3/search?' + params); }
+  catch { throw new Error('인터넷 연결을 확인해주세요'); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const reason = j.error && j.error.errors && j.error.errors[0] && j.error.errors[0].reason;
+    if (reason === 'quotaExceeded') throw new Error('오늘 검색 횟수를 다 썼어요. 내일 다시 해주세요');
+    throw new Error('검색 실패: ' + ((j.error && j.error.message) || r.status));
+  }
+  return (j.items || []).map((it) => ({
+    id: it.id.videoId,
+    title: decodeEntities(it.snippet.title),
+    channel: decodeEntities(it.snippet.channelTitle),
+  }));
+}
+
+function decodeEntities(s) {
+  const t = document.createElement('textarea');
+  t.innerHTML = s;
+  return t.value;
+}
+
+function showResults(items) {
+  const box = $('results');
+  box.innerHTML = '';
+  if (!items.length) { toast('검색 결과가 없어요'); return; }
+  items.forEach((it) => {
+    const row = document.createElement('div');
+    row.className = 'result';
+    row.innerHTML = '<img alt=""><div class="info"><div class="t"></div><div class="c"></div></div><button></button>';
+    row.querySelector('img').src = `https://i.ytimg.com/vi/${it.id}/mqdefault.jpg`;
+    row.querySelector('.t').textContent = it.title;
+    row.querySelector('.c').textContent = it.channel;
+    const b = row.querySelector('button');
+    const exists = songs.some((s) => s.id === it.id);
+    b.textContent = exists ? '추가됨' : '추가';
+    b.disabled = exists;
+    b.addEventListener('click', () => {
+      if (addSong(it.id, it.title)) { b.textContent = '추가됨'; b.disabled = true; }
+    });
+    // 썸네일을 누르면 미리 들어보기
+    row.querySelector('img').addEventListener('click', () => play(it.id, it.title));
+    box.appendChild(row);
+  });
+  const close = document.createElement('button');
+  close.className = 'close';
+  close.textContent = '검색 결과 닫기';
+  close.addEventListener('click', () => { box.innerHTML = ''; });
+  box.appendChild(close);
+  box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 
 $('exportBtn').addEventListener('click', async () => {
   const text = JSON.stringify(songs);
