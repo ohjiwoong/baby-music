@@ -71,6 +71,15 @@
   .song .name { padding: 10px 12px 12px; font-size: 18px; font-weight: 700; line-height: 1.25; }
   .song.playing .name::before { content: "▶ "; color: var(--accent); }
 
+  /* 글자 버튼 보기: 썸네일 없이 내가 정한 이름 + 노래별 고정 색 */
+  body.text-view .grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
+  body.text-view .song { background: var(--song-color, var(--card)); }
+  body.text-view .song img { display: none; }
+  body.text-view .song .name {
+    min-height: 84px; display: flex; align-items: center; justify-content: center;
+    text-align: center; padding: 10px 8px; font-size: 19px; word-break: keep-all;
+  }
+
   .empty-hint { color: var(--muted); text-align: center; padding: 40px 16px; font-size: 17px; line-height: 1.6; }
 
   /* 편집 모드 */
@@ -140,6 +149,8 @@
     .ctl { font-size: 16px; padding: 12px; min-width: 56px; }
     .grid { grid-template-columns: repeat(2, 1fr); }
     .song .name { font-size: 16px; }
+    body.text-view .grid { grid-template-columns: repeat(3, 1fr); }
+    body.text-view .song .name { font-size: 17px; }
   }
 </style>
 </head>
@@ -163,6 +174,7 @@
       <button id="exportBtn">내보내기</button>
       <button id="importBtn">가져오기</button>
       <button id="modeBtn"></button>
+      <button id="viewBtn"></button>
       <button id="doneBtn">편집 끝</button>
     </div>
     <div class="results" id="results"></div>
@@ -197,6 +209,17 @@ const $ = (id) => document.getElementById(id);
 let songs = load(STORE_KEY, []);
 let repeat = load(REPEAT_KEY, 'one');
 let mode = load(MODE_KEY, 'page');
+const VIEW_KEY = 'baby-music.view';
+// 보기: thumb(썸네일 2열) / text(글자 3열)
+const VIEWS = { thumb: '보기: 썸네일', text: '보기: 글자' };
+let view = load(VIEW_KEY, 'thumb');
+// 글자 버튼 배경색 (노래 id로 고정)
+const SONG_COLORS = ['#3b5bdb', '#2b8a3e', '#c2255c', '#e8590c', '#7048e8', '#0c8599', '#a61e4d', '#5c940d'];
+function songColor(id) {
+  let h = 0;
+  for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return SONG_COLORS[h % SONG_COLORS.length];
+}
 let currentId = null;
 let player = null;
 let playerReady = false;
@@ -257,6 +280,7 @@ function render() {
   songs.forEach((s, i) => {
     const el = document.createElement('div');
     el.className = 'song' + (s.id === currentId ? ' playing' : '');
+    el.style.setProperty('--song-color', songColor(s.id));
     el.innerHTML = `
       <img loading="lazy" alt="">
       <div class="name"></div>
@@ -278,6 +302,8 @@ function render() {
   });
   $('repeatBtn').textContent = REPEAT_MODES[repeat];
   $('modeBtn').textContent = PLAY_MODES[mode];
+  $('viewBtn').textContent = VIEWS[view];
+  document.body.classList.toggle('text-view', view === 'text');
   document.body.classList.toggle('app-mode', mode === 'app');
 }
 
@@ -393,6 +419,13 @@ $('repeatBtn').addEventListener('click', () => {
 $('doneBtn').addEventListener('click', () => {
   document.body.classList.remove('editing');
   $('results').innerHTML = '';
+});
+
+$('viewBtn').addEventListener('click', () => {
+  view = view === 'thumb' ? 'text' : 'thumb';
+  try { localStorage.setItem(VIEW_KEY, JSON.stringify(view)); } catch {}
+  render();
+  if (view === 'text') toast('"이름" 버튼으로 짧은 이름을 정해두면 찾기 쉬워요');
 });
 
 $('modeBtn').addEventListener('click', () => {
