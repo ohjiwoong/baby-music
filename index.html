@@ -19,6 +19,9 @@
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; height: 100%; }
+  /* 스크롤 스냅: 영상 영역이 다 보이거나, 완전히 올라가 안 보이거나 둘 중 하나로 */
+  html { scroll-snap-type: y mandatory; }
+  header { scroll-snap-align: start; }
   body {
     background: var(--bg);
     color: var(--text);
@@ -56,7 +59,7 @@
   .ctl.on { background: var(--accent); color: #222; }
 
   /* 노래 버튼 격자 */
-  main { padding: 12px; padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+  main { scroll-snap-align: start; min-height: 100vh; min-height: 100dvh; padding: 12px; padding-bottom: max(12px, env(safe-area-inset-bottom)); }
   .grid {
     display: grid; gap: 12px;
     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
@@ -71,6 +74,15 @@
   .song img { width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block; background: #000; }
   .song .name { padding: 10px 12px 12px; font-size: 18px; font-weight: 700; line-height: 1.25; }
   .song.playing .name::before { content: "▶ "; color: var(--accent); }
+
+  /* 재생 중인 버튼 안의 일시정지/반복 버튼 */
+  .song-ctl { display: flex; gap: 6px; padding: 0 8px 8px; }
+  .song-ctl button {
+    flex: 1; border: 0; border-radius: 10px; background: rgba(0,0,0,.4); color: #fff;
+    font-size: 16px; font-weight: 700; padding: 10px 4px; white-space: nowrap;
+  }
+  .song-ctl button:active { transform: scale(0.95); }
+  body.editing .song-ctl, body.app-mode .song-ctl { display: none; }
 
   /* 글자 버튼 보기: 썸네일 없이 내가 정한 이름 + 노래별 고정 색 */
   body.text-view .grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
@@ -198,6 +210,7 @@ const REPEAT_MODES = {
   all: '🔁 다음곡',
   off: '⏹ 한번만',
 };
+const REPEAT_ICONS = { one: '🔂', all: '🔁', off: '⏹' };
 
 const MODE_KEY = 'baby-music.mode';
 // 재생 방식: page(이 화면의 유튜브 플레이어) / app(유튜브 뮤직 앱으로 열기)
@@ -222,6 +235,7 @@ function songColor(id) {
   return SONG_COLORS[h % SONG_COLORS.length];
 }
 let currentId = null;
+let paused = false;
 let player = null;
 let playerReady = false;
 let pendingId = null;
@@ -285,6 +299,10 @@ function render() {
     el.innerHTML = `
       <img loading="lazy" alt="">
       <div class="name"></div>
+      ${s.id === currentId ? `<div class="song-ctl">
+        <button data-act="pause">${paused ? '▶' : '⏸'}</button>
+        <button data-act="repeat">${REPEAT_ICONS[repeat]}</button>
+      </div>` : ''}
       <div class="song-tools">
         <button data-act="up">◀</button>
         <button data-act="down">▶</button>
@@ -295,6 +313,8 @@ function render() {
     el.querySelector('.name').textContent = s.title;
     el.addEventListener('click', (e) => {
       const act = e.target.dataset && e.target.dataset.act;
+      if (act === 'pause') return togglePause();
+      if (act === 'repeat') return cycleRepeat();
       if (act) return editAction(act, i);
       if (document.body.classList.contains('editing')) return;
       play(s.id);
@@ -326,7 +346,7 @@ function play(id, title) {
   const s = songs.find((x) => x.id === id);
   $('nowTitle').textContent = s ? s.title : (title || '');
   $('nowTitle').classList.remove('empty');
-  $('pauseBtn').textContent = '⏸';
+  paused = false;
   render();
   if (mode === 'app') return openInMusicApp(id);
   requestWakeLock();
@@ -353,8 +373,8 @@ function onYouTubeIframeAPIReady() {
         if (pendingId) { player.loadVideoById(pendingId); pendingId = null; }
       },
       onStateChange: (e) => {
-        if (e.data === YT.PlayerState.PLAYING) $('pauseBtn').textContent = '⏸';
-        if (e.data === YT.PlayerState.PAUSED) $('pauseBtn').textContent = '▶';
+        if (e.data === YT.PlayerState.PLAYING) setPaused(false);
+        if (e.data === YT.PlayerState.PAUSED) setPaused(true);
         if (e.data === YT.PlayerState.ENDED) onEnded();
       },
       onError: (e) => {
@@ -375,23 +395,32 @@ function onEnded() {
     play(songs[(i + 1) % songs.length].id);
     return;
   }
-  $('pauseBtn').textContent = '▶';
+  setPaused(true);
 }
 
-$('pauseBtn').addEventListener('click', () => {
+function setPaused(p) {
+  paused = p;
+  const label = p ? '▶' : '⏸';
+  $('pauseBtn').textContent = label;
+  document.querySelectorAll('[data-act="pause"]').forEach((b) => { b.textContent = label; });
+}
+
+function togglePause() {
   if (!playerReady || !currentId) return;
   const st = player.getPlayerState();
   if (st === YT.PlayerState.PLAYING || st === YT.PlayerState.BUFFERING) player.pauseVideo();
   else player.playVideo();
-});
+}
+$('pauseBtn').addEventListener('click', togglePause);
 
-$('repeatBtn').addEventListener('click', () => {
+function cycleRepeat() {
   const keys = Object.keys(REPEAT_MODES);
   repeat = keys[(keys.indexOf(repeat) + 1) % keys.length];
   try { localStorage.setItem(REPEAT_KEY, JSON.stringify(repeat)); } catch {}
   render();
   toast(REPEAT_MODES[repeat]);
-});
+}
+$('repeatBtn').addEventListener('click', cycleRepeat);
 
 // ---------- 편집 모드 (길게 눌러 진입) ----------
 (() => {
